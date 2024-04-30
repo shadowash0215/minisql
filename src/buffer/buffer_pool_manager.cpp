@@ -23,55 +23,147 @@ BufferPoolManager::~BufferPoolManager() {
 }
 
 /**
- * TODO: Student Implement
+ * Student Implement
  */
 Page *BufferPoolManager::FetchPage(page_id_t page_id) {
   // 1.     Search the page table for the requested page (P).
-  // 1.1    If P exists, pin it and return it immediately.
-  // 1.2    If P does not exist, find a replacement page (R) from either the free list or the replacer.
-  //        Note that pages are always found from the free list first.
-  // 2.     If R is dirty, write it back to the disk.
-  // 3.     Delete R from the page table and insert P.
-  // 4.     Update P's metadata, read in the page content from disk, and then return a pointer to P.
-  return nullptr;
+  if (page_table_.find(page_id) != page_table_.end()) {
+    // 1.1    If P exists, pin it and return it immediately.
+    frame_id_t frame_id = page_table_[page_id];
+    pages_[frame_id].pin_count_++;
+    replacer_->Pin(frame_id);
+    return &pages_[frame_id];
+  } else {
+    // 1.2    If P does not exist, find a replacement page (R) from either the free list or the replacer.
+    //        Note that pages are always found from the free list first.
+    frame_id_t frame_id = INVALID_PAGE_ID;
+    if (!free_list_.empty()) {
+      frame_id = free_list_.front();
+      free_list_.pop_front();
+    } else {
+      if (!replacer_->Victim(&frame_id)) {
+        return nullptr;
+      }
+    }
+    // 2.     If R is dirty, write it back to the disk.
+    if (pages_[frame_id].IsDirty()) {
+      FlushPage(pages_[frame_id].GetPageId());
+    }
+    // 3.     Delete R from the page table and insert P.
+    page_table_.erase(pages_[frame_id].GetPageId());
+    page_table_[page_id] = frame_id;
+    // 4.     Update P's metadata, read in the page content from disk, and then return a pointer to P.
+    pages_[frame_id].page_id_ = page_id;
+    pages_[frame_id].pin_count_ = 1;
+    pages_[frame_id].ResetMemory();
+    disk_manager_->ReadPage(page_id, pages_[frame_id].GetData());
+    replacer_->Pin(frame_id);
+    return &pages_[frame_id];
+  } 
 }
 
 /**
- * TODO: Student Implement
+ * Student Implement
  */
 Page *BufferPoolManager::NewPage(page_id_t &page_id) {
   // 0.   Make sure you call AllocatePage!
   // 1.   If all the pages in the buffer pool are pinned, return nullptr.
+  if (free_list_.empty() && replacer_->Size() == 0) {
+    return nullptr;
+  }
   // 2.   Pick a victim page P from either the free list or the replacer. Always pick from the free list first.
+  frame_id_t frame_id = INVALID_PAGE_ID;
+  if (!free_list_.empty()) {
+    frame_id = free_list_.front();
+    free_list_.pop_front();
+  } else {
+    if (!replacer_->Victim(&frame_id)) {
+      return nullptr;
+    }
+  }
   // 3.   Update P's metadata, zero out memory and add P to the page table.
   // 4.   Set the page ID output parameter. Return a pointer to P.
-  return nullptr;
+  page_table_.erase(pages_[frame_id].GetPageId());
+  page_id = AllocatePage();
+  page_table_[page_id] = frame_id;
+  pages_[frame_id].page_id_ = page_id;
+  pages_[frame_id].pin_count_ = 1;
+  pages_[frame_id].is_dirty_ = false;
+  pages_[frame_id].ResetMemory();
+  replacer_->Pin(frame_id);
+  return &pages_[frame_id];
 }
 
 /**
- * TODO: Student Implement
+ * Student Implement
  */
 bool BufferPoolManager::DeletePage(page_id_t page_id) {
   // 0.   Make sure you call DeallocatePage!
   // 1.   Search the page table for the requested page (P).
-  // 1.   If P does not exist, return true.
-  // 2.   If P exists, but has a non-zero pin-count, return false. Someone is using the page.
-  // 3.   Otherwise, P can be deleted. Remove P from the page table, reset its metadata and return it to the free list.
-  return false;
+  if (page_table_.find(page_id) == page_table_.end()) {
+    // 1.1   If P does not exist, return true.
+    return true;
+  } else {
+    // 1.2   If P exists, but has a non-zero pin-count, return false. Someone is using the page.
+    frame_id_t frame_id = page_table_[page_id];
+    if (pages_[frame_id].pin_count_ != 0) {
+      return false;
+    }
+    // 2.   Otherwise, P can be deleted. Remove P from the page table, reset its metadata and return it to the free list.
+    page_table_.erase(page_id);
+    DeallocatePage(page_id);
+    pages_[frame_id].page_id_ = INVALID_PAGE_ID;
+    pages_[frame_id].pin_count_ = 0;
+    pages_[frame_id].is_dirty_ = false;
+    pages_[frame_id].ResetMemory();
+    free_list_.push_back(frame_id);
+    return true;
+  }
 }
 
 /**
- * TODO: Student Implement
+ * Student Implement
  */
 bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
-  return false;
+  // 1.   Search the page table for the requested page (P).
+  if (page_table_.find(page_id) == page_table_.end()) {
+    // 1.1   If P does not exist, return true.
+    return true;
+  } else {
+    frame_id_t frame_id = page_table_[page_id];
+    // 1.2   If P exists, but has a zero pin-count, return false.
+    if (pages_[frame_id].pin_count_ == 0) {
+      return false;
+    } else {
+      // 2.   Otherwise, unpin P and, if is_dirty is true, set the dirty flag of P.
+      pages_[frame_id].pin_count_--;
+      if (is_dirty) {
+        pages_[frame_id].is_dirty_ = true;
+      }
+      // 3.   If the pin-count of P is equal to zero, put P in the replacer.
+      if (pages_[frame_id].pin_count_ == 0) {
+        replacer_->Unpin(frame_id);
+      }
+      return true;
+    }
+  }
 }
 
 /**
- * TODO: Student Implement
+ * Student Implement
  */
 bool BufferPoolManager::FlushPage(page_id_t page_id) {
-  return false;
+  // 1.   Search the page table for the requested page (P).
+  if (page_table_.find(page_id) == page_table_.end()) {
+    // 1.1   If P does not exist, return false.
+    return false;
+  } else {
+    // 1.2   If P exists, then write P to disk and reset its dirty flag.
+    frame_id_t frame_id = page_table_[page_id];
+    disk_manager_->WritePage(page_id, pages_[frame_id].GetData());
+    pages_[frame_id].is_dirty_ = false;
+    return true;
+  }
 }
 
 page_id_t BufferPoolManager::AllocatePage() {
