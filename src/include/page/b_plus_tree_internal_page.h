@@ -9,6 +9,7 @@
 #include "page/b_plus_tree_page.h"
 
 #define INTERNAL_PAGE_HEADER_SIZE 28
+#define INTERNAL_PAGE_SIZE ((PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / (processor_.GetKeySize() + sizeof(page_id_t)) - 1)
 /**
  * Store n indexed keys and n+1 child pointers (page_id) within internal page.
  * Pointer PAGE_ID(i) points to a subtree in which all keys K satisfy:
@@ -66,9 +67,12 @@ class BPlusTreeInternalPage : public BPlusTreePage {
  private:
   void CopyNFrom(void *src, int size, BufferPoolManager *buffer_pool_manager);
 
+  /*void CopyLastFrom(GenericKey *key, page_id_t value, BufferPoolManager *buffer_pool_manager);
+
+  void CopyFirstFrom(page_id_t value, BufferPoolManager *buffer_pool_manager);*/
   void CopyLastFrom(GenericKey *key, page_id_t value, BufferPoolManager *buffer_pool_manager);
 
-  void CopyFirstFrom(page_id_t value, BufferPoolManager *buffer_pool_manager);
+  void CopyFirstFrom(GenericKey *key,page_id_t value, BufferPoolManager *buffer_pool_manager);
 
   char data_[PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE];
 };
