@@ -85,6 +85,7 @@ bool IndexScanExecutor::Next(Row *row, RowId *rid) {
     if (plan_->need_filter_) {
       if (!predicate->Evaluate(p_row).CompareEquals(Field(kTypeInt, 1))) {
         cursor_++;
+        delete p_row;
         continue;
       }
     }
@@ -94,6 +95,7 @@ bool IndexScanExecutor::Next(Row *row, RowId *rid) {
     } else {
       *row = *p_row;
     }
+    delete p_row;
     cursor_++;
     return true;
   }
