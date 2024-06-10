@@ -158,8 +158,14 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
 
   RowId _value;
   if (page->Lookup(key, _value, processor_)) {
+    if (transaction!=nullptr){
     buffer_pool_manager_->UnpinPage(page->GetPageId(), false);
     return false;
+    }
+    else
+    {
+    buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
+    return true;}
   }
 
   page->Insert(key, value, processor_);
