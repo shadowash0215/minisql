@@ -31,16 +31,31 @@ BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager
 }
 
 void BPlusTree::Destroy(page_id_t current_page_id) {
+//  LOG(INFO) << "Destroy page! " << current_page_id;
+  if(IsEmpty()) return;
+  if(current_page_id == INVALID_PAGE_ID) {
+    current_page_id = root_page_id_;
+    root_page_id_ = INVALID_PAGE_ID;
+    UpdateRootPageId(2);
+  }
+  auto page = reinterpret_cast<BPlusTreePage *>(buffer_pool_manager_->FetchPage(current_page_id)->GetData());
+  if(!page->IsLeafPage()) {
+    auto *inner = reinterpret_cast<InternalPage *>(page);
+    for(int i = page->GetSize() - 1; i >= 0; --i) {
+      Destroy(inner->ValueAt(i));
+    }
+  }
+  buffer_pool_manager_->DeletePage(page->GetPageId());
+  buffer_pool_manager_->UnpinPage(page->GetPageId(), false);
 }
 
 /*
  * Helper function to decide whether current b+tree is empty
  */
 bool BPlusTree::IsEmpty() const {
-  if(root_page_id_ == INVALID_PAGE_ID)
+  if(root_page_id_ == INVALID_PAGE_ID) 
     return true;
-  else
-    return false;
+  return false;
 }
 
 /*****************************************************************************
@@ -52,9 +67,8 @@ bool BPlusTree::IsEmpty() const {
  * @return : true means key exists
  */
 bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn *transaction) {
-  if(root_page_id_ == INVALID_PAGE_ID){
+  if(root_page_id_ == INVALID_PAGE_ID)
     return false;
-  }
   BPlusTreeLeafPage *temp = reinterpret_cast<BPlusTreeLeafPage *>(FindLeafPage(key,false));
   if(temp->GetSize() == 0){
     buffer_pool_manager_->UnpinPage(temp->GetPageId(),false);
@@ -89,14 +103,14 @@ bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn 
  * keys return false, otherwise return true.
  */
 bool BPlusTree::Insert(GenericKey *key, const RowId &value, Txn *transaction) { 
-  if(root_page_id_ == INVALID_PAGE_ID){
+  if(IsEmpty()){
     StartNewTree(key,value);
     return true;
   }
-  else{
+  else
     return InsertIntoLeaf(key,value,transaction);
-  }
 }
+
 /*
  * Insert constant key & value pair into an empty tree
  * User needs to first ask for new page from buffer pool manager(NOTICE: throw
@@ -126,20 +140,47 @@ void BPlusTree::StartNewTree(GenericKey *key, const RowId &value) {
  * @return: since we only support unique key, if user try to insert duplicate
  * keys return false, otherwise return true.
  */
-bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transaction) { 
-  BPlusTreeLeafPage *page = reinterpret_cast<BPlusTreeLeafPage *>(FindLeafPage(key, false));
-  BPlusTreeLeafPage *new_split_page;
-  int size = page->Insert(key, value, processor_);
-  if(size == -1){
-    buffer_pool_manager_->UnpinPage(page->GetPageId(), false);
-    LOG(WARNING)<<"insert failed"<<std::endl;
+bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transaction) {
+  // check if key is null before use it
+  if (!key) {
+    LOG(ERROR) << "Invalid key";
     return false;
   }
-  if(size > leaf_max_size_){
-    new_split_page = Split(page,transaction);
-    InsertIntoParent(page,new_split_page->KeyAt(0),new_split_page,transaction);
-    return true;
+  
+  auto *raw_page = FindLeafPage(key, INVALID_PAGE_ID, false);
+  // check if raw page is null
+  if (raw_page == nullptr) {
+    LOG(ERROR) << "FindLeafPage returned null";
+    return false;
   }
+
+  auto * page = reinterpret_cast<LeafPage *>(raw_page->GetData());
+
+  RowId _value;
+  if (page->Lookup(key, _value, processor_)) {
+    buffer_pool_manager_->UnpinPage(page->GetPageId(), false);
+    return false;
+  }
+
+  page->Insert(key, value, processor_);
+
+  if (page->GetSize() >= page->GetMaxSize()) {
+    auto *new_page = Split(page, transaction);
+
+    // if Split failed and returned nullptr
+    if (new_page == nullptr) {
+      buffer_pool_manager_->UnpinPage(page->GetPageId(), false);
+      LOG(ERROR) << "Split operation failed";
+      return false;
+    }
+
+    new_page->SetNextPageId(page->GetNextPageId());
+    page->SetNextPageId(new_page->GetPageId());
+
+    InsertIntoParent(page, new_page->KeyAt(0), new_page, transaction);
+    buffer_pool_manager_->UnpinPage(new_page->GetPageId(), true);
+  }
+
   buffer_pool_manager_->UnpinPage(page->GetPageId(), true);
   return true;
 }
