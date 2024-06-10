@@ -61,6 +61,7 @@ TableIterator &TableIterator::operator++() {
   }
   RowId next_rowid;
   if(page->GetNextTupleRid(ite_row->GetRowId(),&next_rowid)){
+      ite_row->GetFields().clear();
       ite_row->SetRowId(next_rowid);
       ite_tableheap->GetTuple(ite_row, nullptr);
       ite_tableheap->buffer_pool_manager_->UnpinPage(page->GetPageId(),false);
@@ -70,6 +71,7 @@ TableIterator &TableIterator::operator++() {
   while(page->GetNextPageId() != INVALID_PAGE_ID){
       page = reinterpret_cast<TablePage *>(ite_tableheap->buffer_pool_manager_->FetchPage(page->GetNextPageId()));
       if(page->GetFirstTupleRid(&next_rowid)){
+          ite_row->GetFields().clear();
           ite_row->SetRowId(next_rowid);
           ite_tableheap->GetTuple(ite_row, nullptr);
           ite_tableheap->buffer_pool_manager_->UnpinPage(page->GetPageId(),false);
@@ -78,6 +80,7 @@ TableIterator &TableIterator::operator++() {
   }
   //ite_row = nullptr;
   ite_row->SetRowId(RowId(INVALID_PAGE_ID,0));
+  ite_tableheap->buffer_pool_manager_->UnpinPage(page->GetPageId(),false);
   return *this;
 }
 
