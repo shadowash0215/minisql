@@ -25,10 +25,10 @@ uint32_t TableMetadata::SerializeTo(char *buf) const {
 }
 
 /**
- * TODO: Student Implement
+ * Student Implement
  */
 uint32_t TableMetadata::GetSerializedSize() const {
-  return 4 + 4 + MACH_STR_SERIALIZED_SIZE(table_name_) + 4 + schema_->GetSerializedSize();
+  return 4 * 4 + table_name_.length() + schema_->GetSerializedSize();
 }
 
 /**
