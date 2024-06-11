@@ -103,7 +103,6 @@ TEST(TableHeapTest, TableHeapSelfTest) {
   auto it = table_heap->Begin(nullptr);
   set<int64_t> Set;
   for (int i = 0; i < row_nums; i++) {
-    // LOG(INFO)<<"i: "<<i;
     ASSERT((Set.count(it->GetRowId().Get()) == 0), "[error] - iterator error!");
     Set.insert(it->GetRowId().Get());
     // make sure the iterator is valid
