@@ -92,7 +92,6 @@ uint32_t Column::DeserializeFrom(char *buf, Column *&column) {
     column_name += c;
   }
   type = MACH_READ_FROM(TypeId, buf + SerializedSize);
-  LOG(INFO) << type;
   SerializedSize += sizeof(TypeId);
   len = MACH_READ_UINT32(buf + SerializedSize);
   SerializedSize += sizeof(uint32_t);

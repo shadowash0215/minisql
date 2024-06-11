@@ -191,9 +191,6 @@ dberr_t CatalogManager::CreateIndex(const std::string &table_name, const string 
       page_id_t page_id;
       auto index_meta_page = buffer_pool_manager_->NewPage(page_id);
       // Create index
-      index_id_t index_id = next_index_id_;
-      index_names_[table_name].emplace(index_name, index_id);
-      catalog_meta_->index_meta_pages_.emplace(index_id, page_id);
       next_index_id_ = catalog_meta_->GetNextIndexId();
       // Create index metadata
       auto table_info = tables_.find(table->second)->second;
@@ -207,6 +204,9 @@ dberr_t CatalogManager::CreateIndex(const std::string &table_name, const string 
         }
         key_map.push_back(index);
       }
+      index_id_t index_id = next_index_id_;
+      index_names_[table_name].emplace(index_name, index_id);
+      catalog_meta_->index_meta_pages_.emplace(index_id, page_id);
       auto index_meta_data = IndexMetadata::Create(index_id, index_name, table->second, key_map);
       // Serialize index metadata
       index_meta_data->SerializeTo(index_meta_page->GetData());
