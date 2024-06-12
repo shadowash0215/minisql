@@ -119,6 +119,9 @@ bool DiskManager::IsPageFree(page_id_t logical_page_id) {
   uint32_t extent_id = logical_page_id / BITMAP_SIZE;
   uint32_t page_offset = logical_page_id % BITMAP_SIZE;
   // read the bitmap page
+  if (extent_id >= meta_page->GetExtentNums()) {
+    return true;
+  }
   ReadPhysicalPage(extent_id * (BITMAP_SIZE + 1) + 1, reinterpret_cast<char *>(bitmap_page));
   return bitmap_page->IsPageFree(page_offset);
 }
