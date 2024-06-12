@@ -65,28 +65,13 @@ bool BPlusTree::IsEmpty() const {
  * @return : true means key exists
  */
 bool BPlusTree::GetValue(const GenericKey *key, std::vector<RowId> &result, Txn *transaction) {
-  if (root_page_id_ == INVALID_PAGE_ID) return false;
-  BPlusTreeLeafPage *temp = reinterpret_cast<BPlusTreeLeafPage *>(FindLeafPage(key, false));
-  if (temp->GetSize() == 0) {
-    buffer_pool_manager_->UnpinPage(temp->GetPageId(), false);
-    return false;
-  }
-  int index = temp->KeyIndex(key, processor_);
-  if (index >= temp->GetSize()) {
-    buffer_pool_manager_->UnpinPage(temp->GetPageId(), false);
-    return false;
-  }
-  if (index == INVALID_PAGE_ID) {
-    buffer_pool_manager_->UnpinPage(temp->GetPageId(), false);
-    return false;
-  }
-  if (processor_.CompareKeys(temp->KeyAt(index), key) == 0) {
-    result.push_back(temp->ValueAt(index));
-    buffer_pool_manager_->UnpinPage(temp->GetPageId(), false);
-    return true;
-  }
-  buffer_pool_manager_->UnpinPage(temp->GetPageId(), false);
-  return false;
+  auto leaf_page = reinterpret_cast<LeafPage *>(FindLeafPage(key, root_page_id_));
+  RowId value;
+  bool is_exist = leaf_page->Lookup(key, value, processor_);
+  if (is_exist) 
+    result.push_back(value);
+  buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), false);
+  return is_exist;
 }
 
 /*****************************************************************************
@@ -405,8 +390,6 @@ bool BPlusTree::Coalesce(InternalPage *&neighbor_node, InternalPage *&node, Inte
   neighbor_node->MoveAllTo(node, middle_key, buffer_pool_manager_);
   parent->Remove(index + 1);
   buffer_pool_manager_->UnpinPage(neighbor_node->GetPageId(), true);
-  if (!buffer_pool_manager_->DeletePage(neighbor_node->GetPageId()))
-    ;
   buffer_pool_manager_->UnpinPage(node->GetPageId(), true);
   if (parent->GetSize() < parent->GetMinSize())
     CoalesceOrRedistribute(parent, transaction);
