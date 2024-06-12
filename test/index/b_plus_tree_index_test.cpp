@@ -48,7 +48,7 @@ TEST(BPlusTreeTests, BPlusTreeIndexSimpleTest) {
   const TableSchema table_schema(columns);
   auto *index_schema = Schema::ShallowCopySchema(&table_schema, index_key_map);
   auto *index = new BPlusTreeIndex(0, index_schema, 256, bpm_);
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 100000; i++) {
     std::vector<Field> fields{Field(TypeId::kTypeInt, i),
                               Field(TypeId::kTypeChar, const_cast<char *>("minisql"), 7, true)};
     Row row(fields);
@@ -57,7 +57,7 @@ TEST(BPlusTreeTests, BPlusTreeIndexSimpleTest) {
   }
   // Test Scan
   std::vector<RowId> ret;
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 100000; i++) {
     std::vector<Field> fields{Field(TypeId::kTypeInt, i),
                               Field(TypeId::kTypeChar, const_cast<char *>("minisql"), 7, true)};
     Row row(fields);
@@ -73,7 +73,7 @@ TEST(BPlusTreeTests, BPlusTreeIndexSimpleTest) {
     ASSERT_EQ(i, (*iter).second.GetSlotNum());
     i++;
   }
-  ASSERT_EQ(10, i);
+  ASSERT_EQ(100000, i);
   index->Destroy();
   delete index;
   delete bpm_;
