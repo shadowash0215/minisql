@@ -181,8 +181,10 @@ void InternalPage::Remove(int index) {
  * NOTE: only call this method within AdjustRoot()(in b_plus_tree.cpp)
  */
 page_id_t InternalPage::RemoveAndReturnOnlyChild() {
+  ASSERT(GetSize() == 1, "Size should be 1");
+  page_id_t ret = ValueAt(0);
   SetSize(0);
-  return ValueAt(0);
+  return ret;
 }
 
 /*****************************************************************************

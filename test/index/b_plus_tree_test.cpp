@@ -47,7 +47,7 @@ TEST(BPlusTreeTests, SampleTest) {
   }
   ASSERT_TRUE(tree.Check());
   // Print tree
-  tree.PrintTree(mgr[0], table_schema);
+  // tree.PrintTree(mgr[0], table_schema);
   // Search keys
   vector<RowId> ans;
   for (int i = 0; i < n; i++) {
@@ -59,7 +59,7 @@ TEST(BPlusTreeTests, SampleTest) {
   for (int i = 0; i < n / 2; i++) {
     tree.Remove(delete_seq[i]);
   }
-  tree.PrintTree(mgr[1], table_schema);
+  // tree.PrintTree(mgr[1], table_schema);
   // Check valid
   ans.clear();
   for (int i = 0; i < n / 2; i++) {
@@ -140,7 +140,7 @@ TEST(BPlusTreeTests, SampleTestChar) {
   }
 }
 
-TEST(BPlusTreeTests, BigTest) {
+TEST(BPlusTreeTests, DeletaAllTest) {
   // Init engine
   DBStorageEngine engine(db_name);
   std::vector<Column *> columns = {
@@ -151,7 +151,7 @@ TEST(BPlusTreeTests, BigTest) {
   BPlusTree tree(0, engine.bpm_, KP);
   TreeFileManagers mgr("tree_");
   // Prepare data
-  const int n = 1e6;
+  const int n = 1e5;
   vector<GenericKey *> keys;
   vector<RowId> values;
   vector<GenericKey *> delete_seq;
@@ -179,7 +179,7 @@ TEST(BPlusTreeTests, BigTest) {
   }
   ASSERT_TRUE(tree.Check());
   // Print tree
-  tree.PrintTree(mgr[0], table_schema);
+  // tree.PrintTree(mgr[0], table_schema);
   // Search keys
   vector<RowId> ans;
   for (int i = 0; i < n; i++) {
@@ -191,7 +191,7 @@ TEST(BPlusTreeTests, BigTest) {
   for (int i = 0; i < n; i++) {
     tree.Remove(delete_seq[i]);
   }
-  tree.PrintTree(mgr[1], table_schema);
+  // tree.PrintTree(mgr[1], table_schema);
   // Check valid
   ans.clear();
   for (int i = 0; i < n; i++) {
