@@ -16,6 +16,9 @@ IndexIterator::~IndexIterator() {
 
 std::pair<GenericKey *, RowId> IndexIterator::operator*() { return page->GetItem(item_index); }
 
+/**
+ * TODO: Student Implement
+ */
 IndexIterator &IndexIterator::operator++() {
   if (item_index == (page->GetSize() - 1)) {
     if (page->GetNextPageId() != INVALID_PAGE_ID) {
