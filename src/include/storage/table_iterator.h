@@ -12,7 +12,7 @@ public:
  // you may define your own constructor based on your member variables
  explicit TableIterator(TableHeap *table_heap, RowId rid, Txn *txn);
 
- explicit TableIterator(const TableIterator &other);
+  TableIterator(const TableIterator &other);
 
   virtual ~TableIterator();
 
@@ -32,8 +32,9 @@ public:
 
 private:
   // add your own private member variables here
-  Row* ite_row;
-  TableHeap* ite_tableheap;
+  Row *ite_row;
+  TableHeap *ite_tableheap;
+  Txn *ite_txn;
 };
 
 #endif  // MINISQL_TABLE_ITERATOR_H

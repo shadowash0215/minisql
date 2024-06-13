@@ -119,9 +119,9 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
     catalog_meta_->table_meta_pages_.emplace(table_id, page_id);
     next_table_id_ = catalog_meta_->GetNextTableId();
     // Create table heap
-    auto table_heap = TableHeap::Create(buffer_pool_manager_, schema, txn, log_manager_, lock_manager_);
-    // Create table metadata
     auto table_schema = TableSchema::DeepCopySchema(schema);
+    auto table_heap = TableHeap::Create(buffer_pool_manager_, table_schema, txn, log_manager_, lock_manager_);
+    // Create table metadata
     auto table_meta_data = TableMetadata::Create(table_id, table_name, table_heap->GetFirstPageId(), table_schema);
     // Serialize table metadata
     table_meta_data->SerializeTo(table_meta_page->GetData());
@@ -214,6 +214,7 @@ dberr_t CatalogManager::CreateIndex(const std::string &table_name, const string 
       // Create index info
       index_info = IndexInfo::Create();
       index_info->Init(index_meta_data, table_info, buffer_pool_manager_);
+      indexes_.emplace(index_id, index_info);
       return DB_SUCCESS;
     }
   }

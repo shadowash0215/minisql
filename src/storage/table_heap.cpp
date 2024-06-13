@@ -1,30 +1,61 @@
 #include "storage/table_heap.h"
 
 /**
- * TODO: Student Implement
+ * @brief Insert a tuple into the table heap with given row.
  */
 bool TableHeap::InsertTuple(Row &row, Txn *txn) {
-  page_id_t cur_page_id = first_page_id_,pre_page_id=INVALID_PAGE_ID;
-  while(cur_page_id != INVALID_PAGE_ID){
-      auto page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(cur_page_id));
-      if(page->InsertTuple(row, schema_, txn, lock_manager_,log_manager_)){
-          buffer_pool_manager_->UnpinPage(cur_page_id,true);
-          return true;
-      }
-      buffer_pool_manager_->UnpinPage(cur_page_id,false);
-      pre_page_id = cur_page_id;
-      cur_page_id = page->GetNextPageId();
+  page_id_t cur_page_id = first_page_id_;
+  // find the suitable page to insert the tuple
+  while (cur_page_id != INVALID_PAGE_ID) {
+    auto page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(cur_page_id));
+    // cannot find page
+    if (page == nullptr) {
+      LOG(ERROR) << "The buffer pool is full and no space to replace" << std::endl;
+      return false;
+    }
+    page->WLatch();
+    // insert tuple successfully
+    if (page->InsertTuple(row, schema_, txn, lock_manager_, log_manager_)) {
+      page->WUnlatch();
+      buffer_pool_manager_->UnpinPage(cur_page_id, true);
+      return true;
+    }
+    // find next page
+    page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(cur_page_id, false);
+    page_id_t nexr_page_id = page->GetNextPageId();
+    if (nexr_page_id == INVALID_PAGE_ID) {
+      break;
+    }
+    cur_page_id = nexr_page_id;
   }
-  page_id_t new_page_id;
+  // Create a new page and insert the tuple
+  page_id_t new_page_id = INVALID_PAGE_ID;
   auto new_page = reinterpret_cast<TablePage *>(buffer_pool_manager_->NewPage(new_page_id));
-  new_page->Init(new_page_id, pre_page_id, log_manager_, txn);
-  new_page->InsertTuple(row,schema_,txn,lock_manager_,log_manager_);
-  buffer_pool_manager_->UnpinPage(new_page_id,true);
-  auto pre_page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(pre_page_id));
-  pre_page->SetNextPageId(new_page_id);
-  buffer_pool_manager_->UnpinPage(pre_page_id,true);
-  return true; 
-  // return false; 
+  // Cannot create a new page
+  if (new_page == nullptr) {
+    return false;
+  }
+  // if the heap is not empty, then the new page turns to be the last page
+  if (first_page_id_ == INVALID_PAGE_ID) {
+    first_page_id_ = new_page_id;
+  } else {
+    auto last_page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(cur_page_id));
+    last_page->WLatch();
+    last_page->SetNextPageId(new_page_id);
+    last_page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(cur_page_id, true);
+  }
+  new_page->WLatch();
+  new_page->Init(new_page_id, cur_page_id, log_manager_, txn);
+  if (new_page->InsertTuple(row, schema_, txn, lock_manager_, log_manager_)) {
+    new_page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(new_page_id, true);
+    return true;
+  }
+  new_page->WUnlatch();
+  buffer_pool_manager_->UnpinPage(new_page_id, true);
+  return false;
 }
 
 bool TableHeap::MarkDelete(const RowId &rid, Txn *txn) {
@@ -43,36 +74,40 @@ bool TableHeap::MarkDelete(const RowId &rid, Txn *txn) {
 }
 
 /**
- * TODO: Student Implement
+ * @brief Update a tuple in the table heap with given row and rid.
  */
 bool TableHeap::UpdateTuple(Row &row, const RowId &rid, Txn *txn) {
   page_id_t page_id = rid.GetPageId();
-    TablePage *page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(page_id));
-    if(page == nullptr){
-      LOG(ERROR)<<"the buffer pool is full and no space to replace"<<std::endl;
-      return false;
-    }
-    Row *old_row = new Row(rid);
-    if(page->UpdateTuple(row, old_row,schema_, txn,lock_manager_, log_manager_)){
-        buffer_pool_manager_->UnpinPage(page_id,true);
-        delete old_row;
-        return true;
-    }
-    buffer_pool_manager_->UnpinPage(page_id,true);
-    delete old_row;
+  TablePage *page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(page_id));
+  // cannot find page
+  if (page == nullptr) {
+    LOG(ERROR) << "The buffer pool is full and no space to replace" << std::endl;
     return false;
-  //  return false; 
+  }
+  page->WLatch();
+  Row *old_row = new Row(rid);
+  // if update successfully
+  if (page->UpdateTuple(row, old_row, schema_, txn, lock_manager_, log_manager_)) {
+    page->WUnlatch();
+    buffer_pool_manager_->UnpinPage(page_id, true);
+    delete old_row;
+    return true;
+  }
+  page->WUnlatch();
+  buffer_pool_manager_->UnpinPage(page_id, true);
+  delete old_row;
+  return false;
 }
 
 /**
- * TODO: Student Implement
+ * @brief Apply delete operation to the table heap with given rid.
  */
 void TableHeap::ApplyDelete(const RowId &rid, Txn *txn) {
   // Step1: Find the page which contains the tuple.
   // Step2: Delete the tuple from the page.
   auto page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(rid.GetPageId()));
   page->WLatch();
-  page->ApplyDelete(rid,txn, nullptr);
+  page->ApplyDelete(rid, txn, nullptr);
   page->WUnlatch();
   buffer_pool_manager_->UnpinPage(rid.GetPageId(), true);
 }
@@ -89,31 +124,37 @@ void TableHeap::RollbackDelete(const RowId &rid, Txn *txn) {
 }
 
 /**
- * TODO: Student Implement
+ * @brief Get a tuple from the table heap with given row.
  */
 bool TableHeap::GetTuple(Row *row, Txn *txn) {
   page_id_t page_id = row->GetRowId().GetPageId();
   TablePage *page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(page_id));
-  if(page == nullptr){
-      LOG(ERROR)<<"the buffer pool is full and no space to replace"<<std::endl;
-      return false;
+  // cannot find page
+  if (page == nullptr) {
+    LOG(ERROR) << "The buffer pool is full and no space to replace" << std::endl;
+    return false;
   }
-  if(page->GetTuple(row,schema_,txn,lock_manager_)){
-      if(buffer_pool_manager_->UnpinPage(page_id,false))
-          return true;
-      LOG(WARNING)<<"unknown mistake"<<std::endl;
-      return false;
+  page->RLatch();
+  if (page->GetTuple(row, schema_, txn, lock_manager_)) {
+    page->RUnlatch();
+    if (buffer_pool_manager_->UnpinPage(page_id, false)) {
+      return true;
+    }
+    LOG(WARNING) << "Unknown mistake" << std::endl;
+    return false;
   }
-  LOG(WARNING)<<"get tuple failed"<<std::endl;
+  page->RUnlatch();
+  LOG(WARNING) << "Get tuple failed" << std::endl;
   return false;
-  //  return false; 
 }
 
 void TableHeap::DeleteTable(page_id_t page_id) {
   if (page_id != INVALID_PAGE_ID) {
-    auto temp_table_page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(page_id));  // 删除table_heap
-    if (temp_table_page->GetNextPageId() != INVALID_PAGE_ID)
+    auto temp_table_page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(page_id));  
+    // Delete table_heap recursively.
+    if (temp_table_page->GetNextPageId() != INVALID_PAGE_ID) {
       DeleteTable(temp_table_page->GetNextPageId());
+    }
     buffer_pool_manager_->UnpinPage(page_id, false);
     buffer_pool_manager_->DeletePage(page_id);
   } else {
@@ -122,31 +163,35 @@ void TableHeap::DeleteTable(page_id_t page_id) {
 }
 
 /**
- * TODO: Student Implement
+ * @brief Return an iterator to the beginning of the table heap.
  */
 TableIterator TableHeap::Begin(Txn *txn) {
   page_id_t cur_page_id = first_page_id_;
   RowId first_rid;
-  while(cur_page_id != INVALID_PAGE_ID){
-      auto page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(cur_page_id));
-      if(page->GetFirstTupleRid(&first_rid)){
-          buffer_pool_manager_->UnpinPage(cur_page_id,false);
-          Row *row = new Row(first_rid);
-          GetTuple(row, nullptr);
-          return TableIterator(this,row->GetRowId(),txn);
-      }
-      buffer_pool_manager_->UnpinPage(cur_page_id,false);
-      cur_page_id = page->GetNextPageId();
+  while (cur_page_id != INVALID_PAGE_ID) {
+    auto page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(cur_page_id));
+    ASSERT(page != nullptr, "Fetch page failed.");
+    page->RLatch();
+    if (page->GetFirstTupleRid(&first_rid)) {
+      // if the first tuple is found, then return the iterator
+      page->RUnlatch();
+      buffer_pool_manager_->UnpinPage(cur_page_id, false);
+      Row *row = new Row(first_rid);
+      GetTuple(row, txn);
+      return TableIterator(this, row->GetRowId(), txn);
+    }
+    // move to the next page
+    page->RUnlatch();
+    buffer_pool_manager_->UnpinPage(cur_page_id, false);
+    cur_page_id = page->GetNextPageId();
   }
-  LOG(WARNING)<<"1"<<std::endl;
+  // if the table heap is empty, then return the end iterator
   return End();
-  //  return TableIterator(nullptr, RowId(), nullptr); 
 }
 
 /**
- * TODO: Student Implement
+ * @brief Return an iterator to the end of the table heap.
  */
 TableIterator TableHeap::End() {
-  return TableIterator(nullptr,RowId(INVALID_PAGE_ID,0),nullptr);
-  //  return TableIterator(nullptr, RowId(), nullptr); 
+  return TableIterator(nullptr, RowId(INVALID_PAGE_ID, 0), nullptr);
 }
