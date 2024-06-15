@@ -68,18 +68,24 @@ CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, LockManag
     : buffer_pool_manager_(buffer_pool_manager), lock_manager_(lock_manager), log_manager_(log_manager) {
       if (init) {
         catalog_meta_ = CatalogMeta::NewInstance();
-        auto catalog_page = buffer_pool_manager_->FetchPage(CATALOG_META_PAGE_ID);
-        catalog_meta_->SerializeTo(catalog_page->GetData());
-        buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID, true);
+        // FlushCatalogMetaPage();
+        // next_index_id_ = 0;
+        // next_table_id_ = 0;
       } else {
         auto catalog_page = buffer_pool_manager_->FetchPage(CATALOG_META_PAGE_ID);
         catalog_meta_ = CatalogMeta::DeserializeFrom(reinterpret_cast<char *>(catalog_page->GetData()));
         next_index_id_ = catalog_meta_->GetNextIndexId();
         next_table_id_ = catalog_meta_->GetNextTableId();
         for (auto it: catalog_meta_->table_meta_pages_) {
+          if (it.second == INVALID_PAGE_ID) {
+            break;
+          }
           LoadTable(it.first, it.second);
         }
         for (auto it: catalog_meta_->index_meta_pages_) {
+          if (it.second == INVALID_PAGE_ID) {
+            break;
+          }
           LoadIndex(it.first, it.second);
         }
         buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID, false);
@@ -113,23 +119,29 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
     // Allocate data page for table
     page_id_t page_id;
     auto table_meta_page = buffer_pool_manager_->NewPage(page_id);
+    // Allocate heap root page for table
+    page_id_t heap_root_page_id;
+    TablePage* table_heap_root_page = reinterpret_cast<TablePage*>(buffer_pool_manager_->NewPage(heap_root_page_id));
+    table_heap_root_page->Init(heap_root_page_id, INVALID_PAGE_ID, log_manager_, txn);
     // Create table
     table_id_t table_id = next_table_id_;
-    table_names_.emplace(table_name, table_id);
     catalog_meta_->table_meta_pages_.emplace(table_id, page_id);
     next_table_id_ = catalog_meta_->GetNextTableId();
     // Create table heap
     auto table_schema = TableSchema::DeepCopySchema(schema);
-    auto table_heap = TableHeap::Create(buffer_pool_manager_, table_schema, txn, log_manager_, lock_manager_);
+    auto table_heap = TableHeap::Create(buffer_pool_manager_, heap_root_page_id, table_schema, log_manager_, lock_manager_);
     // Create table metadata
-    auto table_meta_data = TableMetadata::Create(table_id, table_name, table_heap->GetFirstPageId(), table_schema);
+    auto table_meta_data = TableMetadata::Create(table_id, table_name, heap_root_page_id, table_schema);
     // Serialize table metadata
     table_meta_data->SerializeTo(table_meta_page->GetData());
     buffer_pool_manager_->UnpinPage(page_id, true);
+    buffer_pool_manager_->UnpinPage(heap_root_page_id, true);
     // Create table info
     table_info = TableInfo::Create();
     table_info->Init(table_meta_data, table_heap);
+    table_names_.emplace(table_name, table_id);
     tables_.emplace(table_id, table_info);
+    FlushCatalogMetaPage();
     return DB_SUCCESS;
   }
 
@@ -214,7 +226,19 @@ dberr_t CatalogManager::CreateIndex(const std::string &table_name, const string 
       // Create index info
       index_info = IndexInfo::Create();
       index_info->Init(index_meta_data, table_info, buffer_pool_manager_);
+      // Insert record into index
+      auto table_heap = table_info->GetTableHeap();
+      vector<Field> fields;
+      for (auto ite = table_heap->Begin(nullptr); ite != table_heap->End(); ite++) {
+        fields.clear();
+        for (auto key : key_map) {
+          fields.push_back(*(ite->GetField(key)));
+        }
+        Row row(fields);
+        index_info->GetIndex()->InsertEntry(row, ite->GetRowId(), txn);
+      }
       indexes_.emplace(index_id, index_info);
+      FlushCatalogMetaPage();
       return DB_SUCCESS;
     }
   }
@@ -288,11 +312,13 @@ dberr_t CatalogManager::DropTable(const string &table_name) {
     // erase table from tables_meta_pages_
     page_id_t page_id = catalog_meta_->table_meta_pages_[table_id];
     catalog_meta_->table_meta_pages_.erase(table_id);
+    // delete table
+    table_info->GetTableHeap()->FreeTableHeap();
     // delete table from buffer_pool_manager_
     buffer_pool_manager_->UnpinPage(page_id, false);
     buffer_pool_manager_->DeletePage(page_id);
-    // delete table
-    table_info->GetTableHeap()->FreeTableHeap();
+    FlushCatalogMetaPage();
+    delete table_info;
     return DB_SUCCESS; 
   }
 }
@@ -314,18 +340,20 @@ dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_
     } else {
       // erase index from index_names_
       auto index_id = index->second;
-      index_names_.erase(table_name);
+      index_names_.at(table_name).erase(index_name);
       // erase index from indexes_
       auto index_info = indexes_.find(index_id)->second;
       indexes_.erase(index_id);
       // erase index from index_meta_pages_
       page_id_t page_id = catalog_meta_->index_meta_pages_[index_id];
       catalog_meta_->index_meta_pages_.erase(index_id);
+      // delete index
+      index_info->GetIndex()->Destroy();
       // delete index from buffer_pool_manager_
       buffer_pool_manager_->UnpinPage(page_id, false);
       buffer_pool_manager_->DeletePage(page_id);
-      // delete index
-      index_info->GetIndex()->Destroy();
+      FlushCatalogMetaPage();
+      delete index_info;
       return DB_SUCCESS;
     }
   }
@@ -360,7 +388,7 @@ dberr_t CatalogManager::LoadTable(const table_id_t table_id, const page_id_t pag
     TableMetadata::DeserializeFrom(table_meta_page->GetData(), table_meta_data);
     // restore table heap
     auto table_schema = TableSchema::DeepCopySchema(table_meta_data->GetSchema());
-    auto table_heap = TableHeap::Create(buffer_pool_manager_, page_id, table_schema, log_manager_, lock_manager_);
+    auto table_heap = TableHeap::Create(buffer_pool_manager_, table_meta_data->GetFirstPageId(), table_schema, log_manager_, lock_manager_);
     // restore table info
     auto table_info = TableInfo::Create();
     table_info->Init(table_meta_data, table_heap);

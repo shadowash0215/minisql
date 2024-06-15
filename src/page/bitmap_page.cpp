@@ -30,11 +30,9 @@ bool BitmapPage<PageSize>::AllocatePage(uint32_t &page_offset) {
 template <size_t PageSize>
 bool BitmapPage<PageSize>::DeAllocatePage(uint32_t page_offset) {
   if (page_offset >= GetMaxSupportedSize()) {
-    LOG(ERROR) << "Page offset " << page_offset << " is out of range.";
     return false;
   }
   if (IsPageFree(page_offset)) {
-    LOG(ERROR) << "Page offset " << page_offset << " is already free.";
     return false;
   }
   // Deallocate the page
@@ -53,7 +51,6 @@ bool BitmapPage<PageSize>::DeAllocatePage(uint32_t page_offset) {
 template <size_t PageSize>
 bool BitmapPage<PageSize>::IsPageFree(uint32_t page_offset) const {
   if (page_offset >= GetMaxSupportedSize()) {
-    LOG(ERROR) << "Page offset " << page_offset << " is out of range.";
     return false;
   }
   return IsPageFreeLow(page_offset / 8, page_offset % 8);
@@ -62,11 +59,9 @@ bool BitmapPage<PageSize>::IsPageFree(uint32_t page_offset) const {
 template <size_t PageSize>
 bool BitmapPage<PageSize>::IsPageFreeLow(uint32_t byte_index, uint8_t bit_index) const {
   if (byte_index >= MAX_CHARS) {
-    LOG(ERROR) << "Byte index " << byte_index << " is out of range.";
     return false;
   }
   if (bit_index >= 8) {
-    LOG(ERROR) << "Bit index " << bit_index << " is out of range.";
     return false;
   }
   return (bytes[byte_index] & (1 << bit_index)) == 0;
