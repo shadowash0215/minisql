@@ -149,6 +149,10 @@ dberr_t ExecuteEngine::Execute(pSyntaxNode ast) {
     default:
       break;
   }
+  if (current_db_.empty()) {
+    cout << "No database selected" << endl;
+    return DB_FAILED;
+  }
   // Plan the query.
   Planner planner(context.get());
   std::vector<Row> result_set{};
@@ -473,6 +477,10 @@ dberr_t ExecuteEngine::ExecuteShowIndexes(pSyntaxNode ast, ExecuteContext *conte
 #ifdef ENABLE_EXECUTE_DEBUG
   LOG(INFO) << "ExecuteShowIndexes" << std::endl;
 #endif
+  if (current_db_.empty()) {
+    cout << "No database selected" << endl;
+    return DB_FAILED;
+  }
   vector<IndexInfo *> indexes;
   vector<TableInfo *> tables;
   if(dbs_[current_db_]->catalog_mgr_->GetTables(tables) != DB_SUCCESS)
@@ -588,12 +596,16 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
   }
   int buffer_size = 1024;
   char* buffer_ptr = new char[buffer_size];
+  auto start_time = std::chrono::system_clock::now();
   while(1){
     char tmp_char;
     int cnt = 0;
     do{
       if(!file.get(tmp_char)){
         delete buffer_ptr;
+        auto stop_time = std::chrono::system_clock::now();
+        double duration_time = double((std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time)).count());
+        cout << "Total time: (" << duration_time / 1000 << " sec)" << endl;
         return DB_SUCCESS;
       }
       buffer_ptr[cnt] = tmp_char;

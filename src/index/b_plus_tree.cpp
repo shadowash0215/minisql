@@ -46,7 +46,7 @@ void BPlusTree::Destroy(page_id_t current_page_id) {
   if (current_page_id == INVALID_PAGE_ID) {
     return;
   }
-  if (current_page_id = root_page_id_) {
+  if (current_page_id == root_page_id_) {
     auto header_page = reinterpret_cast<IndexRootsPage *>(buffer_pool_manager_->FetchPage(INDEX_ROOTS_PAGE_ID)->GetData());
     header_page->Delete(index_id_);
   }
@@ -182,10 +182,6 @@ BPlusTreeLeafPage *BPlusTree::Split(LeafPage *node, Txn *transaction) {
     throw "out of memory";
   }
   new_page->Init(new_page_id, node->GetParentPageId(), processor_.GetKeySize(), leaf_max_size_);
-  // LOG(INFO) << "Split: node_page_id = " << node->GetPageId() << ", new_page_id = " << new_page_id;
-  // auto page2 = reinterpret_cast<LeafPage *>(buffer_pool_manager_->FetchPage(2)->GetData());
-  // auto page3 = reinterpret_cast<LeafPage *>(buffer_pool_manager_->FetchPage(3)->GetData());
-  // LOG(INFO) << "Split: page2_address = " << page2 << ", page3_address = " << page3;
   node->MoveHalfTo(new_page);
   new_page->SetNextPageId(node->GetNextPageId());
   node->SetNextPageId(new_page_id);
@@ -403,8 +399,6 @@ bool BPlusTree::AdjustRoot(BPlusTreePage *old_root_node) {
   int size = old_root_node->GetSize();
   if (old_root_node->IsLeafPage() && size == 0) {
     // case 2
-    buffer_pool_manager_->UnpinPage(old_root_node->GetPageId(), false);
-    buffer_pool_manager_->DeletePage(old_root_node->GetPageId());
     root_page_id_ = INVALID_PAGE_ID;
     UpdateRootPageId();
     return true;
